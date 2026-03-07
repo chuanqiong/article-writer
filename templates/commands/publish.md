@@ -308,7 +308,9 @@ cp draft.md publish/article.md
 
 💡 下一步:
 
-**微信公众号发布** (一键复制):
+**微信公众号发布** (两种方式):
+
+**方式一：一键复制（推荐新手）**
 1. 浏览器会自动打开 `publish/wechat.html` 预览页面
 2. 点击页面顶部的 **"一键复制到微信"** 按钮
    - 或使用快捷键: Ctrl/Cmd + Shift + C
@@ -316,6 +318,20 @@ cp draft.md publish/article.md
 4. 按 Ctrl+V (Mac: Cmd+V) 粘贴
 5. 检查格式和图片
 6. 发布!
+
+**方式二：直接推送到草稿箱（推荐高级用户）**
+> ⚡ 已配置微信 API？直接推送到草稿箱！
+
+```bash
+/push-draft                    # 推送当前文章到草稿箱
+/push-draft path/to/draft.md   # 推送指定文件
+```
+
+前置条件：
+- 设置环境变量: `WECHAT_APP_ID` 和 `WECHAT_APP_SECRET`
+- 或在 `.content/config.json` 中配置 `wechat` 字段
+
+> 首次使用 `/push-draft` 会提示配置方法
 
 🎉 恭喜完成整个写作流程！
 ```

@@ -410,6 +410,57 @@ Claude Code 的界面设计简洁直观。
 
 ---
 
-**文件版本**: v1.0
-**最后更新**: 2025-01-26
+## 微信公众号 API 配置
+
+> 用于 `/push-draft` 命令推送文章到公众号草稿箱
+
+### 配置方式
+
+#### 方式一：环境变量（推荐）
+
+```bash
+# 在 ~/.zshrc 或 ~/.bashrc 中添加
+export WECHAT_APP_ID="wx1234567890abcdef"
+export WECHAT_APP_SECRET="your_app_secret_here"
+```
+
+#### 方式二：配置文件
+
+在 `.content/config.json` 中添加：
+
+```json
+{
+  "workspace": "wechat",
+  "wechat": {
+    "appId": "wx1234567890abcdef",
+    "appSecret": "your_app_secret_here"
+  }
+}
+```
+
+### 获取凭证
+
+1. 登录 [微信公众平台](https://mp.weixin.qq.com)
+2. 进入 **开发** → **基本配置**
+3. 复制"开发者ID(AppID)"和"开发者密码(AppSecret)"
+
+### IP 白名单
+
+调用 API 的服务器 IP 需要添加到公众号白名单：
+
+1. 进入 **开发** → **基本配置**
+2. 点击"IP白名单" → "修改"
+3. 添加服务器 IP
+
+```bash
+# 查看本机公网 IP
+curl -s ifconfig.me
+```
+
+> ⚠️ **安全提示**: 不要将 `appSecret` 提交到 Git。建议使用环境变量。
+
+---
+
+**文件版本**: v1.1
+**最后更新**: 2025-03-07
 **维护**: Article Writer Team
