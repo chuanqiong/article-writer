@@ -189,6 +189,9 @@ function buildTheme(options: FormatOptions): WechatTheme {
         'border-collapse': 'collapse',
         'margin': '1em 8px',
         'width': '100%',
+        'table-layout': 'fixed',
+        'word-wrap': 'break-word',
+        'word-break': 'break-all',
       },
       th: {
         'border': '1px solid #ddd',
@@ -584,18 +587,19 @@ export class WechatFormatter {
       table(token: Tokens.Table): string {
         const header = token.header.map(cell => {
           const content = this.parser.parseInline(cell.tokens);
-          return `<th ${self.getStyles('th')}>${content}</th>`;
+          return `<th>${content}</th>`;
         }).join('');
 
         const body = token.rows.map(row => {
           const cells = row.map(cell => {
             const content = this.parser.parseInline(cell.tokens);
-            return `<td ${self.getStyles('td')}>${content}</td>`;
+            return `<td>${content}</td>`;
           }).join('');
           return `<tr>${cells}</tr>`;
         }).join('\n');
 
-        return `<table ${self.getStyles('table')}><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
+        // 移除内联样式，让微信后台使用原生表格样式
+        return `<table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
       }
     }
 
@@ -775,45 +779,117 @@ export class WechatFormatter {
       const content = document.getElementById('article-content');
 
       try {
-        // 获取格式化后的 HTML
-        const html = content.innerHTML;
-        const text = content.innerText;
-
-        // 使用 Clipboard API 复制带格式的内容
-        if (navigator.clipboard && window.ClipboardItem) {
-          const blob = new Blob([html], { type: 'text/html' });
-          const textBlob = new Blob([text], { type: 'text/plain' });
-          const item = new ClipboardItem({
-            'text/html': blob,
-            'text/plain': textBlob
+        // 等待所有图片加载完成（最多 5 秒）
+        const images = content.querySelectorAll('img');
+        const imageLoadPromises = Array.from(images).map(img => {
+          if (img.complete) return Promise.resolve();
+          return new Promise(resolve => {
+            const timeoutId = setTimeout(resolve, 5000); // 5 秒超时
+            img.onload = () => { clearTimeout(timeoutId); resolve(); };
+            img.onerror = () => { clearTimeout(timeoutId); resolve(); }; // 失败也继续
           });
+        });
+        await Promise.all(imageLoadPromises);
 
-          await navigator.clipboard.write([item]);
+        // 方法：使用 selection + range 模拟真实复制，让浏览器生成富文本格式
+        // 这是微信后台最兼容的方式
+
+        // 创建一个临时的可编辑容器来承载要复制的内容
+        const tempContainer = document.createElement('div');
+        tempContainer.contentEditable = 'true';
+        tempContainer.style.position = 'fixed';
+        tempContainer.style.left = '-9999px';
+        tempContainer.style.top = '0';
+        tempContainer.style.width = '800px';
+        tempContainer.innerHTML = content.innerHTML;
+
+        // 修复表格样式：完全不设置宽度，让微信后台自动处理
+        const tables = tempContainer.querySelectorAll('table');
+        tables.forEach(table => {
+          // 完全移除所有样式属性
+          table.removeAttribute('style');
+          // 不设置任何宽度，让表格自适应
+        });
+
+        // 移除单元格的所有样式
+        const cells = tempContainer.querySelectorAll('th, td');
+        cells.forEach(cell => {
+          cell.removeAttribute('style');
+        });
+
+        document.body.appendChild(tempContainer);
+
+        // 选中临时容器的内容
+        const range = document.createRange();
+        range.selectNodeContents(tempContainer);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        // 执行复制命令 - 浏览器会将渲染后的富文本放入剪贴板
+        const success = document.execCommand('copy');
+
+        // 清理临时容器
+        document.body.removeChild(tempContainer);
+        selection.removeAllRanges();
+
+        if (success) {
+          // 成功提示
+          btn.classList.add('success');
+          btnIcon.textContent = '✅';
+          btnText.textContent = '复制成功!';
+          status.textContent = '已复制到剪贴板，请打开微信公众号后台粘贴';
+          status.classList.add('show');
+
+          // 3 秒后恢复
+          setTimeout(() => {
+            btn.classList.remove('success');
+            btnIcon.textContent = '📋';
+            btnText.textContent = '一键复制到微信';
+            status.classList.remove('show');
+          }, 3000);
         } else {
-          // 降级方案:仅复制纯文本
-          await navigator.clipboard.writeText(text);
+          throw new Error('execCommand 返回失败');
         }
-
-        // 成功提示
-        btn.classList.add('success');
-        btnIcon.textContent = '✅';
-        btnText.textContent = '复制成功!';
-        status.textContent = '已复制到剪贴板,请打开微信公众号后台粘贴';
-        status.classList.add('show');
-
-        // 3秒后恢复
-        setTimeout(() => {
-          btn.classList.remove('success');
-          btnIcon.textContent = '📋';
-          btnText.textContent = '一键复制到微信';
-          status.classList.remove('show');
-        }, 3000);
 
       } catch (err) {
         console.error('复制失败:', err);
+
+        // 降级方案：尝试使用 Clipboard API
+        try {
+          const html = content.innerHTML;
+          const text = content.innerText;
+
+          if (navigator.clipboard && window.ClipboardItem) {
+            const blob = new Blob([html], { type: 'text/html' });
+            const textBlob = new Blob([text], { type: 'text/plain' });
+            const item = new ClipboardItem({
+              'text/html': blob,
+              'text/plain': textBlob
+            });
+            await navigator.clipboard.write([item]);
+
+            btn.classList.add('success');
+            btnIcon.textContent = '✅';
+            btnText.textContent = '复制成功 (降级)!';
+            status.textContent = '已复制 (使用备用方案，如失败请手动选择内容复制)';
+            status.classList.add('show');
+
+            setTimeout(() => {
+              btn.classList.remove('success');
+              btnIcon.textContent = '📋';
+              btnText.textContent = '一键复制到微信';
+              status.classList.remove('show');
+            }, 3000);
+            return;
+          }
+        } catch (err2) {
+          console.error('降级方案也失败:', err2);
+        }
+
         btnIcon.textContent = '❌';
         btnText.textContent = '复制失败';
-        status.textContent = '复制失败,请手动选择内容复制';
+        status.textContent = '复制失败，请手动全选 (Ctrl+A) 后复制 (Ctrl+C)';
         status.style.background = 'rgba(239, 68, 68, 0.9)';
         status.classList.add('show');
 
@@ -826,7 +902,7 @@ export class WechatFormatter {
       }
     }
 
-    // 键盘快捷键: Ctrl/Cmd + Shift + C
+    // 键盘快捷键：Ctrl/Cmd + Shift + C
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
         e.preventDefault();
@@ -837,7 +913,7 @@ export class WechatFormatter {
     // 页面加载完成提示
     window.addEventListener('load', () => {
       console.log('✅ 微信公众号预览已加载');
-      console.log('💡 快捷键: Ctrl/Cmd + Shift + C 快速复制');
+      console.log('💡 快捷键：Ctrl/Cmd + Shift + C 快速复制');
     });
   </script>
 </body>
