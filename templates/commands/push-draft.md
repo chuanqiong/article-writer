@@ -1,19 +1,16 @@
 ---
-description: 推送文章到微信公众号草稿箱
-argument-hint: [文件路径] (默认: draft.md)
+description: 推送 HTML 文章到微信公众号草稿箱
+argument-hint: [文件路径] (.html 文件)
 allowed-tools: Read, Bash, Write
-scripts:
-  sh: scripts/bash/push-draft.sh
 ---
 
-# 推送草稿到公众号
+# 推送 HTML 文章到公众号
 
 ## 功能说明
 
-将当前文章推送到微信公众号草稿箱，自动完成：
+将 Typora 导出的 HTML 文件推送到微信公众号草稿箱，自动完成：
+- 从 HTML 注释块中解析 frontmatter 元信息
 - 图片上传到微信素材库
-- 格式化为公众号兼容的 HTML
-- 提取 frontmatter 元信息
 - 创建草稿并返回 media_id
 
 ## ⚠️ 前置条件
@@ -47,9 +44,41 @@ scripts:
 ### 基本用法
 
 ```bash
-/push-draft                    # 推送当前目录的 draft.md
-/push-draft path/to/article.md # 推送指定文件
+/push-draft article.html    # 推送 HTML 文件
 ```
+
+### HTML 文件格式
+
+在 HTML 文件头部添加 frontmatter 注释块：
+
+```html
+<!--
+---
+title: 文章标题
+author: 作者名
+digest: 文章摘要（必填，建议 50-120 字）
+cover: images/cover.png（封面图路径）
+---
+-->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>文章标题</title>
+</head>
+<body>
+  <!-- Typora 导出的正文内容 -->
+</body>
+</html>
+```
+
+**必填字段说明：**
+
+| 字段 | 说明 |
+|------|------|
+| `title` | 文章标题，最长 64 字 |
+| `author` | 作者名称 |
+| `digest` | 文章摘要，建议 50-120 字 |
+| `cover` | 封面图路径（绝对路径或相对路径） |
 
 ---
 
@@ -68,48 +97,30 @@ echo $WECHAT_APP_SECRET
 cat .content/config.json | grep -A3 '"wechat"'
 ```
 
-### 2. 读取文章
+### 2. 读取 HTML 文件
 
-读取 Markdown 文件并解析 frontmatter：
+读取 HTML 文件并解析 frontmatter 注释块：
 
-```markdown
+```html
+<!--
 ---
 title: 文章标题     # 必填
 author: 作者名     # 必填
-digest: 文章摘要   # 必填，建议 50-120 字
+digest: 文章摘要   # 必填
 cover: images/cover.png  # 必填
 ---
-
-正文内容...
+-->
 ```
 
-**必填字段说明：**
-
-| 字段 | 说明 |
-|------|------|
-| `title` | 文章标题，最长 64 字 |
-| `author` | 作者名称 |
-| `digest` | 文章摘要，建议 50-120 字 |
-| `cover` | 封面图路径（绝对路径或相对路径） |
-
-### 3. 格式化内容
-
-调用格式化器生成公众号兼容的 HTML：
-
-```bash
-# 使用现有的 WechatFormatter
-# 自动跳过 h1 标题（与公众号标题重复）
-```
-
-### 4. 上传图片
+### 3. 上传图片
 
 自动检测并上传图片：
 
 - **本地图片**: 直接上传到素材库
-- **在线图片**: 下载后上传（TODO）
+- **在线图片**: 下载后上传
 - **已上传图片**: 跳过（mmbiz.qpic.cn 域名）
 
-### 5. 创建草稿
+### 4. 创建草稿
 
 调用微信 API 创建草稿：
 
@@ -120,8 +131,8 @@ cover: images/cover.png  # 必填
     title: "标题",
     author: "作者",
     digest: "摘要",
-    content: "<HTML内容>",
-    thumb_media_id: "封面图ID"
+    content: "<HTML 内容>",
+    thumb_media_id: "封面图 ID"
   }]
 }
 ```
@@ -135,18 +146,15 @@ cover: images/cover.png  # 必填
 ```
 ✅ 草稿创建成功！
 
-📄 标题: Claude Code 深度评测
-📊 字数: 3520
-🖼️ 图片: 6 张上传成功
+📄 标题：Claude Code 深度评测
+📊 字数：3520
+🖼️ 图片：6 张上传成功
 🆔 Media ID: media_id_xxx
 
 💡 下一步：
 1. 登录微信公众号后台
 2. 进入"草稿箱"
 3. 找到文章并编辑/发布
-
-或使用命令直接发布：
-/publish-draft media_id_xxx
 ```
 
 ### 失败
@@ -154,12 +162,25 @@ cover: images/cover.png  # 必填
 ```
 ❌ 推送失败
 
-原因: 40001 - invalid credential
+原因：40001 - invalid credential
 
 解决方案:
 1. 检查 WECHAT_APP_ID 和 WECHAT_APP_SECRET 是否正确
 2. 确认服务器 IP 已添加到白名单
 3. 重新生成 AppSecret 并更新配置
+```
+
+### 错误：缺少必填字段
+
+```
+❌ 缺少必填字段：digest（摘要）
+
+请在 HTML 文件的 frontmatter 注释块中添加：
+<!--
+---
+digest: 文章摘要（建议 50-120 字）
+---
+-->
 ```
 
 ---
@@ -170,7 +191,7 @@ cover: images/cover.png  # 必填
 
 1. 登录 [微信公众平台](https://mp.weixin.qq.com)
 2. 进入 **开发** → **基本配置**
-3. 复制"开发者ID"和"开发者密码"
+3. 复制"开发者 ID"和"开发者密码"
 
 ### 配置 IP 白名单
 
@@ -186,23 +207,27 @@ curl -s ifconfig.me
 ## 注意事项
 
 1. **图片限制**:
-   - 支持格式: jpg, png, gif
-   - 大小限制: 2MB
-   - 推荐尺寸: 900×500px
+   - 支持格式：jpg, png, gif
+   - 大小限制：2MB
+   - 推荐尺寸：900×500px
 
 2. **封面图**:
    - 必填
-   - 推荐尺寸: 900×500px
-   - 格式: jpg 或 png
+   - 推荐尺寸：900×500px
+   - 格式：jpg 或 png
 
 3. **内容限制**:
-   - 标题: 最长 64 字
-   - 摘要: 最长 120 字
-   - 正文: 无限制
+   - 标题：最长 64 字
+   - 摘要：最长 120 字
+   - 正文：无限制
 
 4. **API 限制**:
-   - 草稿数量上限: 100
-   - 每日调用次数: 根据公众号等级
+   - 草稿数量上限：100
+   - 每日调用次数：根据公众号等级
+
+5. **文件格式**:
+   - 仅支持 `.html` 文件
+   - 如需推送 Markdown，请先在 Typora 中导出为 HTML
 
 ---
 
@@ -219,3 +244,6 @@ A: 删除一些旧草稿，上限 100 篇。
 
 ### Q: 如何查看已推送的草稿？
 A: 登录公众号后台 → 草稿箱，或使用 `/list-drafts` 命令。
+
+### Q: 支持 Markdown 文件吗？
+A: 不支持。请在 Typora 中将 Markdown 导出为 HTML，然后使用 `/push-draft article.html` 推送。

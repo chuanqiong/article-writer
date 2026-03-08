@@ -70,11 +70,12 @@ export {
 // 草稿推送服务
 export {
   pushToDraft,
-  parseFrontmatter,
+  pushHtmlToDraft,
+  parseHtmlFrontmatter,
+  isHtmlFile,
   extractImageUrls,
   processImages,
-  generatePreview,
+  uploadCoverImage,
   type ArticleFrontmatter,
   type PushResult,
-  type PushPreview,
 } from './draft-service.js';

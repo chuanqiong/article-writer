@@ -1,11 +1,10 @@
 /**
  * 草稿推送服务
- * 整合格式化、图片上传、草稿创建等功能
+ * 支持从 Typora 导出的 HTML 文件推送到微信公众号草稿箱
  */
 
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { WechatFormatter } from '../../formatters/wechat-formatter.js';
 import {
   uploadArticleImage,
   uploadPermanentMedia,
@@ -32,24 +31,24 @@ export interface PushResult {
   message?: string;
 }
 
-// 预览信息
-export interface PushPreview {
-  title: string;
-  author: string;
-  digest: string;
-  wordCount: number;
-  imageCount: number;
-  hasCover: boolean;
-}
-
 /**
- * 解析 Markdown frontmatter
+ * 解析 HTML 注释块中的 frontmatter
+ * 格式:
+ * <!--
+ * ---
+ * title: 文章标题
+ * author: 作者名
+ * digest: 文章摘要
+ * cover: images/cover.png
+ * ---
+ * -->
  */
-export function parseFrontmatter(content: string): {
+export function parseHtmlFrontmatter(content: string): {
   frontmatter: ArticleFrontmatter;
   body: string;
 } {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  // 匹配 HTML 注释块中的 frontmatter
+  const match = content.match(/<!--\n---\n([\s\S]*?)\n---\n-->\n?([\s\S]*)/);
 
   if (!match) {
     return {
@@ -104,6 +103,13 @@ export function parseFrontmatter(content: string): {
 }
 
 /**
+ * 检查文件是否为 HTML 文件
+ */
+export function isHtmlFile(filePath: string): boolean {
+  return filePath.toLowerCase().endsWith('.html');
+}
+
+/**
  * 提取 HTML 中的图片 URL
  */
 export function extractImageUrls(html: string): string[] {
@@ -128,13 +134,24 @@ export function isLocalImage(url: string): boolean {
 }
 
 /**
+ * 移除 HTML 中的 base64 图片标签
+ */
+export function removeBase64Images(html: string): string {
+  // 移除包含 base64 图片的 img 标签
+  return html.replace(/<img[^>]+src=["']data:image[^"']+["'][^>]*\/?>/gi, '<!-- base64 图片已移除 -->');
+}
+
+/**
  * 批量上传图片并替换 URL
  */
 export async function processImages(
   html: string,
   basePath: string
 ): Promise<{ html: string; uploaded: number; failed: string[] }> {
-  const urls = extractImageUrls(html);
+  // 先移除 base64 图片
+  let processedHtml = removeBase64Images(html);
+
+  const urls = extractImageUrls(processedHtml);
   const urlMap = new Map<string, string>();
   const failed: string[] = [];
   let uploaded = 0;
@@ -142,6 +159,11 @@ export async function processImages(
   for (const url of urls) {
     // 跳过已经上传过的图片（mmbiz.qpic.cn）
     if (url.includes('mmbiz.qpic.cn')) {
+      continue;
+    }
+
+    // 跳过 data: URL（已经在 removeBase64Images 中处理）
+    if (url.startsWith('data:')) {
       continue;
     }
 
@@ -178,7 +200,6 @@ export async function processImages(
   }
 
   // 替换 URL
-  let processedHtml = html;
   for (const [oldUrl, newUrl] of urlMap) {
     processedHtml = processedHtml.split(oldUrl).join(newUrl);
   }
@@ -201,58 +222,40 @@ export async function uploadCoverImage(
 }
 
 /**
- * 生成推送预览
+ * 推送 HTML 文章到草稿箱
  */
-export function generatePreview(
-  frontmatter: ArticleFrontmatter,
-  html: string
-): PushPreview {
-  // 统计字数（去除 HTML 标签）
-  const textContent = html.replace(/<[^>]+>/g, '');
-  const wordCount = textContent.length;
-
-  // 统计图片数量
-  const imageCount = extractImageUrls(html).length;
-
-  return {
-    title: frontmatter.title || '(无标题)',
-    author: frontmatter.author || '作者',
-    digest: frontmatter.digest?.substring(0, 50) + '...' || '(无摘要)',
-    wordCount,
-    imageCount,
-    hasCover: !!frontmatter.cover,
-  };
-}
-
-/**
- * 推送文章到草稿箱
- */
-export async function pushToDraft(
-  markdownPath: string,
-  options?: {
-    formatter?: WechatFormatter;
-  }
+export async function pushHtmlToDraft(
+  htmlPath: string
 ): Promise<PushResult> {
   try {
-    // 1. 读取 Markdown
-    if (!existsSync(markdownPath)) {
+    // 1. 检查文件类型
+    if (!isHtmlFile(htmlPath)) {
       return {
         success: false,
         title: '',
-        message: `文件不存在：${markdownPath}`,
+        message: `仅支持 .html 文件格式，当前文件为：${htmlPath}\n\n请在 Typora 中将 Markdown 导出为 HTML，然后使用：\n/push-draft article.html`,
       };
     }
 
-    const content = readFileSync(markdownPath, 'utf-8');
-    const { frontmatter, body } = parseFrontmatter(content);
-    const basePath = dirname(markdownPath);
+    // 2. 读取 HTML 文件
+    if (!existsSync(htmlPath)) {
+      return {
+        success: false,
+        title: '',
+        message: `文件不存在：${htmlPath}`,
+      };
+    }
+
+    const content = readFileSync(htmlPath, 'utf-8');
+    const { frontmatter, body } = parseHtmlFrontmatter(content);
+    const basePath = dirname(htmlPath);
 
     // 验证必填字段
     if (!frontmatter.title) {
       return {
         success: false,
         title: '',
-        message: '❌ 缺少必填字段：title（标题）\n\n请在 Markdown 文件 frontmatter 中添加：\n---\ntitle: 文章标题\n---',
+        message: '❌ 缺少必填字段：title（标题）\n\n请在 HTML 文件头部添加 frontmatter 注释块：\n<!--\n---\ntitle: 文章标题\n---\n-->',
       };
     }
 
@@ -260,7 +263,7 @@ export async function pushToDraft(
       return {
         success: false,
         title: frontmatter.title,
-        message: '❌ 缺少必填字段：author（作者）\n\n请在 Markdown 文件 frontmatter 中添加：\n---\nauthor: 作者名\n---',
+        message: '❌ 缺少必填字段：author（作者）\n\n请在 HTML 文件 frontmatter 中添加：\nauthor: 作者名',
       };
     }
 
@@ -268,7 +271,7 @@ export async function pushToDraft(
       return {
         success: false,
         title: frontmatter.title,
-        message: '❌ 缺少必填字段：digest（摘要）\n\n请在 Markdown 文件 frontmatter 中添加：\n---\ndigest: 文章摘要（建议 50-120 字）\n---',
+        message: '❌ 缺少必填字段：digest（摘要）\n\n请在 HTML 文件 frontmatter 中添加：\ndigest: 文章摘要（建议 50-120 字）',
       };
     }
 
@@ -276,22 +279,21 @@ export async function pushToDraft(
       return {
         success: false,
         title: frontmatter.title,
-        message: '❌ 缺少必填字段：cover（封面图）\n\n请在 Markdown 文件 frontmatter 中添加：\n---\ncover: path/to/cover.jpg\n---\n\n或使用绝对路径指定封面图位置。',
+        message: '❌ 缺少必填字段：cover（封面图）\n\n请在 HTML 文件 frontmatter 中添加：\ncover: images/cover.jpg',
       };
     }
 
-    // 2. 格式化为 HTML
-    const formatter = options?.formatter || new WechatFormatter();
-    let html = await formatter.format(body);
+    // 3. 使用 HTML 正文（已经是 HTML 格式，无需转换）
+    let html = body;
 
-    // 3. 上传图片并替换 URL
+    // 4. 上传图片并替换 URL
     const { html: processedHtml, uploaded, failed } = await processImages(html, basePath);
 
     if (failed.length > 0) {
       console.warn(`⚠️ ${failed.length} 张图片上传失败`);
     }
 
-    // 4. 上传封面图（必填）
+    // 5. 上传封面图（必填）
     let thumbMediaId: string;
     const coverPath = frontmatter.cover.startsWith('/')
       ? frontmatter.cover
@@ -309,7 +311,7 @@ export async function pushToDraft(
       };
     }
 
-    // 5. 构建草稿数据
+    // 6. 构建草稿数据
     const article: DraftArticle = {
       title: frontmatter.title,
       author: frontmatter.author,
@@ -322,14 +324,14 @@ export async function pushToDraft(
       article.content_source_url = frontmatter.contentSourceUrl;
     }
 
-    // 6. 推送草稿
+    // 7. 推送草稿
     const result = await addDraft([article]);
 
     return {
       success: true,
       mediaId: result.mediaId,
       title: frontmatter.title,
-      message: `✅ 草稿创建成功！\n\n📄 标题：${frontmatter.title}\n📊 字数：${html.replace(/<[^>]+>/g, '').length}\n🖼️ 图片：${uploaded} 张上传成功\n🆔 Media ID: ${result.mediaId}`,
+      message: `✅ 草稿创建成功！\n\n📄 标题：${frontmatter.title}\n📊 字数：${processedHtml.replace(/<[^>]+>/g, '').length}\n🖼️ 图片：${uploaded} 张上传成功\n🆔 Media ID: ${result.mediaId}`,
     };
   } catch (error) {
     return {
@@ -339,3 +341,6 @@ export async function pushToDraft(
     };
   }
 }
+
+// 兼容导出：推送到草稿箱的主函数
+export const pushToDraft = pushHtmlToDraft;
