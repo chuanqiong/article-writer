@@ -13,7 +13,8 @@ type Page = any;
 async function loadPuppeteer() {
   try {
     const pptr = await import('puppeteer');
-    return pptr.default || pptr;
+    // puppeteer 模块导出 { launch, ... }，不是 default
+    return pptr;
   } catch (err) {
     throw new Error(
       '❌ Puppeteer 未安装。请运行: npm install puppeteer\n' +

@@ -15,10 +15,13 @@ import type {
   TencentCOSConfig,
 } from '../types.js';
 
+// COS 客户端类型
+type COSClient = InstanceType<typeof COS>;
+
 export class TencentCOSProvider implements ImageBedProvider {
   readonly type = 'tencent-cos' as ImageBedType;
   private config: TencentCOSConfig;
-  private cosClient: COS;
+  private cosClient: COSClient;
 
   constructor(config: TencentCOSConfig) {
     this.config = config;
